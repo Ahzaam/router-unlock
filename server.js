@@ -116,7 +116,7 @@ app.prepare().then(async () => {
   });
 
   const redisUrl = resolveRedisUrl();
-  console.log("Connecting to Redis at: ", redisUrl);
+
   const pubClient = new Redis(redisUrl, { lazyConnect: true });
   const subClient = new Redis(redisUrl, { lazyConnect: true });
 
