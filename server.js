@@ -7,7 +7,7 @@ const path = require("path");
 const fs = require("fs");
 const mime = require("mime-types");
 const { createAdapter } = require("@socket.io/redis-adapter");
-const { createClient } = require("ioredis");
+const Redis = require("ioredis");
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "localhost";
@@ -116,8 +116,9 @@ app.prepare().then(async () => {
   });
 
   const redisUrl = resolveRedisUrl();
-  const pubClient = createClient({ url: redisUrl, lazyConnect: true });
-  const subClient = createClient({ url: redisUrl, lazyConnect: true });
+  console.log("Connecting to Redis at: ", redisUrl);
+  const pubClient = new Redis(redisUrl, { lazyConnect: true });
+  const subClient = new Redis(redisUrl, { lazyConnect: true });
 
   pubClient.on("error", (err) => console.error("Redis pub client error:", err));
   subClient.on("error", (err) => console.error("Redis sub client error:", err));
