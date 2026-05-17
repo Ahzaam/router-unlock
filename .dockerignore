@@ -1,0 +1,7 @@
+node_modules
+.next
+agent/
+.env*
+.git
+.github
+README.md
