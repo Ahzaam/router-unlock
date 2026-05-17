@@ -116,10 +116,20 @@ app.prepare().then(async () => {
   });
 
   const redisUrl = resolveRedisUrl();
-  const pubClient = createClient({ url: redisUrl });
-  const subClient = pubClient.duplicate();
+  const pubClient = createClient({ url: redisUrl, lazyConnect: true });
+  const subClient = createClient({ url: redisUrl, lazyConnect: true });
 
-  await Promise.all([pubClient.connect(), subClient.connect()]);
+  pubClient.on("error", (err) => console.error("Redis pub client error:", err));
+  subClient.on("error", (err) => console.error("Redis sub client error:", err));
+
+  try {
+    await pubClient.connect();
+    await subClient.connect();
+  } catch (err) {
+    console.error("Failed to connect to Redis:", err);
+    process.exit(1);
+  }
+
   io.adapter(createAdapter(pubClient, subClient));
 
   server.get("/health", (req, res) => {
