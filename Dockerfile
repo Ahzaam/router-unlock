@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install dependencies first for caching
 COPY package.json package-lock.json* ./
-RUN npm install --production --no-audit --no-fund
+RUN npm install --no-audit --no-fund
 
 # Copy remaining files
 COPY . .
