@@ -16,8 +16,13 @@ def kill_running_agent():
 def build():
     print("Building Agent...")
     
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    dist_dir = os.path.join(root_dir, "dist")
+    public_dir = os.path.abspath(os.path.join(root_dir, os.pardir, "public"))
+    agent_file = os.path.join(root_dir, "agent.py")
+
     # Kill existing process first
-    kill_running_agent();
+    kill_running_agent()
     
     # Ensure pyinstaller is installed
     try:
@@ -28,7 +33,7 @@ def build():
         
     # Install requirements
     print("Installing requirements...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", os.path.join(root_dir, "requirements.txt")])
     
     # Run pyinstaller
     print("Running PyInstaller...")
@@ -37,10 +42,21 @@ def build():
         "--onefile", 
         "--windowed", 
         "--name=RouterAgent", 
-        "agent.py"
-    ])
-    
-    print("Build complete! Check the 'dist' folder for RouterAgent.exe")
+        "--distpath", dist_dir,
+        agent_file
+    ], cwd=root_dir)
+
+    built_exe = os.path.join(dist_dir, "RouterAgent.exe")
+    target_exe = os.path.join(public_dir, "RouterAgent.exe")
+
+    if not os.path.exists(public_dir):
+        os.makedirs(public_dir, exist_ok=True)
+
+    if os.path.exists(built_exe):
+        shutil.copy2(built_exe, target_exe)
+        print(f"Build complete! Copied RouterAgent.exe to {target_exe}")
+    else:
+        print("Build failed: RouterAgent.exe was not found in dist/." )
 
 if __name__ == "__main__":
     build()

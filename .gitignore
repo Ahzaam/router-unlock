@@ -23,13 +23,7 @@
 # misc
 .DS_Store
 *.pem
-# agent build artifacts
-/agent/dist
-/agent/build
-/agent/RouterAgent.spec
-/agent/__pycache__
-/agent/*.pyc
-/public/RouterAgent.exe
+
 # debug
 npm-debug.log*
 yarn-debug.log*

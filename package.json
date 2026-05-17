@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "node server.js",
     "build": "next build",
+    "build:agent": "python ./agent/build.py",
+    "build:all": "npm run build && npm run build:agent",
     "start": "node server.js",
     "lint": "eslint"
   },
