@@ -21,7 +21,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Create a Socket.IO client
 sio = socketio.Client()
 
-DEFAULT_SERVER_URL = "https://72ng94qh-3000.use.devtunnels.ms" 
+DEFAULT_SERVER_URL = "https://router-unlock-396094248264.europe-west1.run.app" 
 SESSION_CODE = "".join(random.choices(string.digits, k=6))
 SESSION_NAME = socket.gethostname() 
 

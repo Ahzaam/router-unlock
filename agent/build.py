@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 import time
+import shutil
 
 def kill_running_agent():
     print("Checking for running instances of RouterAgent.exe...")
@@ -18,7 +19,7 @@ def build():
     
     root_dir = os.path.dirname(os.path.abspath(__file__))
     dist_dir = os.path.join(root_dir, "dist")
-    public_dir = os.path.abspath(os.path.join(root_dir, os.pardir, "public"))
+    public_dir = os.path.abspath(os.path.join(root_dir, os.pardir, "uploads"))
     agent_file = os.path.join(root_dir, "agent.py")
 
     # Kill existing process first
