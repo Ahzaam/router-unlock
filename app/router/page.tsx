@@ -51,6 +51,8 @@ function RouterPageContent() {
     socket.on("disconnect", () => setServerConnected(false));
 
     socket.emit("join-session", { code, role: "router" });
+    sessionStorage.setItem("sessionCode", code);
+    sessionStorage.setItem("role", "router");
     addLog(`Joined session ${code}`);
 
     socket.on("user-connected", ({ role }) => {
@@ -249,7 +251,6 @@ function RouterPageContent() {
         </div>
 
         <div className="flex-1 flex flex-col w-full mx-auto p-4 md:p-8 space-y-6 overflow-hidden relative">
-          
           {/* Main Connection Area (Only visible when no call) */}
           {!isCallActive && (
             <div className="bg-gray-900/50 border border-gray-800 rounded-2xl p-8 flex flex-col items-center justify-center text-center relative overflow-hidden pointer-events-auto">
@@ -292,21 +293,30 @@ function RouterPageContent() {
           )}
 
           {/* Local Logs - Twitch chat style overlay */}
-          <div className={`flex flex-col transition-all duration-700 overflow-hidden pointer-events-auto ${
-            isCallActive 
-              ? 'absolute right-6 bottom-24 w-80 bg-black/20 backdrop-blur-sm rounded-2xl h-96' 
-              : 'bg-black border border-gray-800 rounded-xl flex-1 min-h-[300px]'
-          }`}>
+          <div
+            className={`flex flex-col transition-all duration-700 overflow-hidden pointer-events-auto ${
+              isCallActive
+                ? "absolute right-6 bottom-24 w-80 bg-black/20 backdrop-blur-sm rounded-2xl h-96"
+                : "bg-black border border-gray-800 rounded-xl flex-1 min-h-[300px]"
+            }`}
+          >
             {!isCallActive && (
               <div className="p-3 border-b bg-gray-900 border-gray-800 flex justify-between items-center">
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-500">Activity Log</h3>
               </div>
             )}
-            <div className={`flex-1 p-4 font-mono text-[11px] overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-gray-800 ${isCallActive ? 'mask-gradient-top' : ''}`}>
+            <div
+              className={`flex-1 p-4 font-mono text-[11px] overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-gray-800 ${isCallActive ? "mask-gradient-top" : ""}`}
+            >
               {logs.map((log) => (
-                <div key={log.id} className={`flex gap-3 ${isCallActive ? 'drop-shadow-[0_1.5px_1.5px_rgba(0,0,0,1)]' : 'text-gray-300'}`}>
-                  <span className={`${isCallActive ? 'text-blue-400 font-bold' : 'text-gray-600'} shrink-0`}>[{log.timestamp}]</span>
-                  <span className={`break-all ${isCallActive ? 'text-white font-semibold' : 'opacity-80'}`}>{log.content}</span>
+                <div
+                  key={log.id}
+                  className={`flex gap-3 ${isCallActive ? "drop-shadow-[0_1.5px_1.5px_rgba(0,0,0,1)]" : "text-gray-300"}`}
+                >
+                  <span className={`${isCallActive ? "text-blue-400 font-bold" : "text-gray-600"} shrink-0`}>
+                    [{log.timestamp}]
+                  </span>
+                  <span className={`break-all ${isCallActive ? "text-white font-semibold" : "opacity-80"}`}>{log.content}</span>
                 </div>
               ))}
               <div ref={logEndRef} />
@@ -326,7 +336,7 @@ function RouterPageContent() {
               <h3 className="text-sm font-black text-white uppercase tracking-tight">Incoming Call</h3>
               <p className="text-[10px] text-gray-400">Admin is requesting support</p>
               <div className="flex gap-2 mt-3">
-                <button 
+                <button
                   onClick={() => {
                     setIncomingCall(false);
                     getSocket().emit("call-decline", { code });
@@ -335,7 +345,7 @@ function RouterPageContent() {
                 >
                   Decline
                 </button>
-                <button 
+                <button
                   onClick={() => {
                     setIncomingCall(false);
                     setIsCallActive(true);

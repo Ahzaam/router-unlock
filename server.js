@@ -6,6 +6,8 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const mime = require("mime-types");
+const { createAdapter } = require("@socket.io/redis-adapter");
+const { createClient } = require("ioredis");
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "localhost";
@@ -13,12 +15,77 @@ const port = parseInt(process.env.PORT || "3000", 10);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-// Store sessions in memory
-const sessions = new Map();
-
-// Session expiry (30 mins)
-const SESSION_TIMEOUT = 30 * 60 * 1000;
+const SESSION_TTL_SECONDS = 30 * 60;
 const proxyRequests = new Map();
+
+function resolveRedisUrl() {
+  if (process.env.REDIS_URL) {
+    return process.env.REDIS_URL;
+  }
+
+  const restUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!restUrl || !token) {
+    throw new Error("Missing REDIS_URL or Upstash Redis environment variables");
+  }
+
+  const parsed = new URL(restUrl);
+  const host = parsed.hostname;
+  const port = parsed.port || "6379";
+  return `rediss://default:${encodeURIComponent(token)}@${host}:${port}`;
+}
+
+async function getSession(code, pubClient) {
+  const data = await pubClient.get(`session:${code}`);
+  return data ? JSON.parse(data) : null;
+}
+
+async function saveSession(session, pubClient) {
+  await pubClient.set(`session:${session.code}`, JSON.stringify(session), {
+    EX: SESSION_TTL_SECONDS,
+  });
+  await pubClient.sadd("active-sessions", session.code);
+}
+
+async function deleteSession(code, pubClient) {
+  await pubClient.del(`session:${code}`);
+  await pubClient.srem("active-sessions", code);
+}
+
+async function getAllSessions(pubClient) {
+  const codes = await pubClient.smembers("active-sessions");
+  const sessions = await Promise.all(
+    codes.map(async (code) => {
+      const session = await getSession(code, pubClient);
+      if (!session) {
+        await pubClient.srem("active-sessions", code);
+      }
+      return session;
+    }),
+  );
+  return sessions.filter(Boolean);
+}
+
+async function createOrUpdateSession(code, values, pubClient) {
+  const existing = (await getSession(code, pubClient)) || {
+    code,
+    name: "Unnamed Session",
+    adminId: null,
+    routerId: null,
+    agentId: null,
+    createdAt: Date.now(),
+  };
+
+  const session = {
+    ...existing,
+    ...values,
+    code,
+    createdAt: existing.createdAt || Date.now(),
+  };
+
+  await saveSession(session, pubClient);
+  return session;
+}
 
 // Configure storage for uploads
 const storage = multer.diskStorage({
@@ -37,7 +104,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-app.prepare().then(() => {
+app.prepare().then(async () => {
   const server = express();
   server.use(express.json({ limit: "500mb" }));
   server.use(express.urlencoded({ limit: "500mb", extended: true }));
@@ -47,6 +114,13 @@ app.prepare().then(() => {
     pingInterval: 5000, // Send ping every 5 seconds (default 25s)
     pingTimeout: 10000, // Wait 10 seconds for pong before considering socket dead (default 60s)
   });
+
+  const redisUrl = resolveRedisUrl();
+  const pubClient = createClient({ url: redisUrl });
+  const subClient = pubClient.duplicate();
+
+  await Promise.all([pubClient.connect(), subClient.connect()]);
+  io.adapter(createAdapter(pubClient, subClient));
 
   server.get("/health", (req, res) => {
     res.json({ status: "ok" });
@@ -102,7 +176,7 @@ app.prepare().then(() => {
 
   // HTTP Proxy Bridge - Sticky Target Implementation
   // Structure: /api/proxy/:code/ (any path)
-  server.get(/^\/api\/proxy\/([^/]+)\/(.*)/, (req, res) => {
+  server.get(/^\/api\/proxy\/([^/]+)\/(.*)/, async (req, res) => {
     const code = req.params[0];
     const fullPath = req.params[1];
     const parts = fullPath.split("/");
@@ -111,12 +185,13 @@ app.prepare().then(() => {
 
     // Check if targetInfo looks like an IP (e.g. 192.168.1.1 or 192.168.1.1:80)
     const isTarget = /^(\d{1,3}\.){3}\d{1,3}/.test(targetInfo);
-    const session = sessions.get(code);
+    const session = await getSession(code, pubClient);
 
     if (isTarget) {
       // Store this as the "sticky" target for this session
       if (session) {
         session.lastProxyTarget = targetInfo;
+        await saveSession(session, pubClient);
       }
     } else {
       // Not a target, try to recover from session
@@ -172,56 +247,66 @@ app.prepare().then(() => {
     socket.heartbeatInterval = heartbeatInterval;
 
     // Create session (Legacy/Optional)
-    socket.on("create-session", () => {
+    socket.on("create-session", async () => {
       let code;
+      let session;
       do {
         code = Math.floor(100000 + Math.random() * 900000).toString();
-      } while (sessions.has(code));
+        session = await getSession(code, pubClient);
+      } while (session);
 
-      sessions.set(code, {
+      await createOrUpdateSession(
         code,
-        name: "Unnamed Session",
-        adminId: socket.id,
-        routerId: null,
-        agentId: null,
-        createdAt: Date.now(),
-      });
+        {
+          name: "Unnamed Session",
+          adminId: socket.id,
+          routerId: null,
+          agentId: null,
+          createdAt: Date.now(),
+        },
+        pubClient,
+      );
 
       socket.join(code);
       socket.emit("session-created", code);
-      io.emit("sessions-updated", Array.from(sessions.values()));
+      io.emit("sessions-updated", await getAllSessions(pubClient));
     });
 
     // Agent create session
-    socket.on("agent-create-session", ({ code, name }) => {
-      sessions.set(code, {
+    socket.on("agent-create-session", async ({ code, name }) => {
+      await createOrUpdateSession(
         code,
-        name: name || "Unnamed Session",
-        adminId: null,
-        routerId: null,
-        agentId: socket.id,
-        createdAt: Date.now(),
-      });
+        {
+          name: name || "Unnamed Session",
+          adminId: null,
+          routerId: null,
+          agentId: socket.id,
+          createdAt: Date.now(),
+        },
+        pubClient,
+      );
       socket.join(code);
       io.to(code).emit("agent-connected", { id: socket.id });
-      io.emit("sessions-updated", Array.from(sessions.values()));
+      io.emit("sessions-updated", await getAllSessions(pubClient));
     });
 
     // Get all sessions
-    socket.on("get-sessions", () => {
-      socket.emit("sessions-updated", Array.from(sessions.values()));
+    socket.on("get-sessions", async () => {
+      socket.emit("sessions-updated", await getAllSessions(pubClient));
     });
 
     // Join session
-    socket.on("join-session", ({ code, role }) => {
-      const session = sessions.get(code);
+    socket.on("join-session", async ({ code, role }) => {
+      const session = await getSession(code, pubClient);
       if (!session) {
         return socket.emit("error", "Session not found");
       }
 
-      socket.join(code);
       if (role === "admin") session.adminId = socket.id;
       if (role === "router") session.routerId = socket.id;
+
+      await saveSession(session, pubClient);
+      socket.join(code);
 
       // Sync current status to the joiner
       socket.emit("session-status", {
@@ -232,23 +317,24 @@ app.prepare().then(() => {
 
       // Broadcast user-connected
       io.to(code).emit("user-connected", { role, id: socket.id, code });
-      io.emit("sessions-updated", Array.from(sessions.values()));
+      io.emit("sessions-updated", await getAllSessions(pubClient));
     });
 
     // Agent connected
-    socket.on("agent-connected", (code) => {
-      const session = sessions.get(code);
+    socket.on("agent-connected", async (code) => {
+      const session = await getSession(code, pubClient);
       if (session) {
         session.agentId = socket.id;
+        await saveSession(session, pubClient);
         socket.join(code);
         io.to(code).emit("agent-connected", { id: socket.id, code });
-        io.emit("sessions-updated", Array.from(sessions.values()));
+        io.emit("sessions-updated", await getAllSessions(pubClient));
       }
     });
 
     // Send command
-    socket.on("send-command", ({ code, type, command }) => {
-      const session = sessions.get(code);
+    socket.on("send-command", async ({ code, type, command }) => {
+      const session = await getSession(code, pubClient);
       if (!session) return;
 
       if (type === "AT") {
@@ -361,7 +447,7 @@ app.prepare().then(() => {
     });
 
     // Disconnect
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
       console.log("Client disconnected:", socket.id);
 
       // Clear heartbeat interval
@@ -369,7 +455,10 @@ app.prepare().then(() => {
         clearInterval(socket.heartbeatInterval);
       }
 
-      for (const [code, session] of sessions.entries()) {
+      const sessions = await getAllSessions(pubClient);
+      let stateChanged = false;
+
+      for (const session of sessions) {
         let role = null;
         if (session.adminId === socket.id) {
           session.adminId = null;
@@ -382,15 +471,20 @@ app.prepare().then(() => {
           role = "agent";
         }
 
-        if (role) {
-          io.to(code).emit("user-disconnected", { role });
+        if (!role) continue;
 
-          // Optional: Remove session if empty
-          if (!session.adminId && !session.routerId && !session.agentId) {
-            sessions.delete(code);
-          }
-          io.emit("sessions-updated", Array.from(sessions.values()));
+        stateChanged = true;
+        io.to(session.code).emit("user-disconnected", { role });
+
+        if (!session.adminId && !session.routerId && !session.agentId) {
+          await deleteSession(session.code, pubClient);
+        } else {
+          await saveSession(session, pubClient);
         }
+      }
+
+      if (stateChanged) {
+        io.emit("sessions-updated", await getAllSessions(pubClient));
       }
     });
   });
@@ -399,16 +493,6 @@ app.prepare().then(() => {
   server.use((req, res) => {
     return handle(req, res);
   });
-
-  // Cleanup old sessions periodically
-  setInterval(() => {
-    const now = Date.now();
-    for (const [code, session] of sessions.entries()) {
-      if (now - session.createdAt > SESSION_TIMEOUT) {
-        sessions.delete(code);
-      }
-    }
-  }, 60000);
 
   // Graceful shutdown
   process.on("SIGTERM", () => {

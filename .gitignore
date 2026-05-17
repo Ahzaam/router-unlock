@@ -23,7 +23,8 @@
 # misc
 .DS_Store
 *.pem
-\agent\dist\
+/agent/dist/
+/agent/build
 # debug
 npm-debug.log*
 yarn-debug.log*

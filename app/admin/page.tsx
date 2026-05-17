@@ -280,6 +280,18 @@ function AdminPageContent() {
     }
   }, [sessionData, selectedSessionCode]);
 
+  useEffect(() => {
+    if (!isAuthenticated || selectedSessionCode) return;
+    const storedCode = sessionStorage.getItem("sessionCode");
+    const storedRole = sessionStorage.getItem("role");
+    if (storedCode && storedRole === "admin") {
+      setSelectedSessionCode(storedCode);
+      const socket = getSocket();
+      socket.emit("join-session", { code: storedCode, role: "admin" });
+      fetchFiles(storedCode);
+    }
+  }, [isAuthenticated, selectedSessionCode]);
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (password === "admin123") {
@@ -371,6 +383,8 @@ function AdminPageContent() {
 
   const selectSession = (code: string) => {
     setSelectedSessionCode(code);
+    sessionStorage.setItem("sessionCode", code);
+    sessionStorage.setItem("role", "admin");
     fetchFiles(code);
     const socket = getSocket();
     socket.emit("join-session", { code, role: "admin" });

@@ -19,7 +19,12 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Create a Socket.IO client
-sio = socketio.Client()
+sio = socketio.Client(
+    reconnection=True,
+    reconnection_attempts=0,
+    reconnection_delay=1,
+    reconnection_delay_max=5,
+)
 
 DEFAULT_SERVER_URL = "https://router-unlock-396094248264.europe-west1.run.app" 
 SESSION_CODE = "".join(random.choices(string.digits, k=6))

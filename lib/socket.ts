@@ -19,6 +19,14 @@ export const initSocket = () => {
       console.log("Heartbeat received:", new Date(data.timestamp).toISOString());
       // Connection is still alive
     });
+
+    socket.on("reconnect", () => {
+      const code = sessionStorage.getItem("sessionCode");
+      const role = sessionStorage.getItem("role");
+      if (code && role) {
+        socket.emit("join-session", { code, role });
+      }
+    });
   }
   return socket;
 };
